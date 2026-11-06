@@ -4,12 +4,15 @@ version = "0.0.0"
 description = "Study: when an imperfect error detector flags table cells, which strategy improves a downstream model?"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "duckdb>=2.0.0",
+    "joblib>=1.6.0",
     "lightgbm",
     "numpy",
     "pandas",
     "scikit-learn",
     "scipy",
     "tabulate",
+    "threadpoolctl>=3.7.0",
 ]
 
 [dependency-groups]

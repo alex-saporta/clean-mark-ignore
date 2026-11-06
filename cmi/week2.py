@@ -20,11 +20,12 @@ from sklearn.metrics import roc_auc_score
 from cmi.data import load_magic_telescope, split_indices
 from cmi.detector import detection_quality
 from cmi.models import MODEL_NAMES, make_model
-from cmi.repairs import ERRORS_IN_TRAIN, REPAIRING, STRATEGIES, detect, fit_repair, repair_error
+from cmi.repairs import ERRORS_IN_TRAIN, REPAIRING, detect, fit_repair, repair_error
 from cmi.strategies import LOCATIONS, corrupt
 from cmi.week1 import adjust_by, paired_record, read_rows
 
 ERROR = "outlier_random"
+STRATEGIES = ("S0", "S1", "S1c", "S2", "S3", "S4", "S5", "CLEAN")
 RATES = (0.05, 0.20)
 RECALLS = (0.5, 0.75, 0.95)
 FPRS = (0.01, 0.05, 0.20)

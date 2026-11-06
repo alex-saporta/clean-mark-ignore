@@ -8,7 +8,7 @@ from cmi.repairs import STRATEGIES, detect, fit_repair, repair_error
 from cmi.strategies import corrupt
 
 N_TRAIN = 3000
-ALL = (*STRATEGIES, "S3rf")
+ALL = STRATEGIES
 
 
 @pytest.fixture(scope="module")
@@ -81,7 +81,7 @@ def test_s2_uses_the_mean_of_unflagged_training_cells(data):
     assert np.allclose(fitted.train[rows, cols], means[cols])
 
 
-@pytest.mark.parametrize("strategy", ["S3", "S3rf"])
+@pytest.mark.parametrize("strategy", ["S3", "S3hgb"])
 def test_s3_leaves_no_missing_value(data, strategy):
     fitted, test = applied(strategy, view(data))
     assert not np.isnan(fitted.train).any()

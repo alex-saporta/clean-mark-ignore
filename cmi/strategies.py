@@ -4,7 +4,15 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from cmi.injection import error_rng, inject_outliers, inject_random_outliers, mark_missing
+from cmi.injection import (
+    error_rng,
+    inject_in_domain,
+    inject_outliers,
+    inject_random_outliers,
+    inject_typos,
+    inject_unit_change,
+    mark_missing,
+)
 
 LOCATIONS = ("train", "test", "both")
 STRATEGIES = ("S0", "S1", "S5")
@@ -23,17 +31,32 @@ class Corrupted:
 
 
 def corrupt(
-    X_train: np.ndarray, X_test: np.ndarray, rate: float, split: int, error: str = "outlier"
+    X_train: np.ndarray,
+    X_test: np.ndarray,
+    rate: float,
+    split: int,
+    error: str = "outlier",
+    columns: tuple[int, ...] | None = None,
+    mechanism: str = "uniform",
 ) -> Corrupted:
+    """Inject one error type. Every parameter comes from the clean training part."""
     scale = X_train.std(axis=0)
     low, high = X_train.min(axis=0), X_train.max(axis=0)
 
     def inject(X: np.ndarray, part: str) -> tuple[np.ndarray, np.ndarray]:
         rng = error_rng(split, rate, part)
         if error == "outlier":
-            return inject_outliers(X, rate, scale, rng)
+            return inject_outliers(X, rate, scale, rng, columns=columns, mechanism=mechanism)
         if error == "outlier_random":
-            return inject_random_outliers(X, rate, low, high, scale, rng)
+            return inject_random_outliers(X, rate, low, high, scale, rng, columns=columns, mechanism=mechanism)
+        if error == "unit":
+            return inject_unit_change(X, rate, rng, columns=columns, mechanism=mechanism)
+        if error in ("in_domain", "category_swap"):
+            return inject_in_domain(X, rate, X_train, rng, columns=columns, mechanism=mechanism)
+        if error == "typo":
+            targets = tuple(range(X.shape[1])) if columns is None else columns
+            n_categories = {col: int(X_train[:, col].max()) + 1 for col in targets}
+            return inject_typos(X, rate, n_categories, rng, targets, mechanism)
         raise ValueError(f"Unknown error: {error}")
 
     dirty_train, train_mask = inject(X_train, "train")
