@@ -1,0 +1,27 @@
+[project]
+name = "clean-mark-ignore"
+version = "0.0.0"
+description = "Study: when an imperfect error detector flags table cells, which strategy improves a downstream model?"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "lightgbm",
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "scipy",
+    "tabulate",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "xgboost",
+]
+
+[tool.uv]
+package = false
+exclude-newer = "2026-10-23T00:00:00Z"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
