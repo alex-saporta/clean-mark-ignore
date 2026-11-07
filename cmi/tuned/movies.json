@@ -1,0 +1,73 @@
+{
+  "table": "movies",
+  "task": "regression",
+  "tuning_split": 1000,
+  "params": {
+    "lightgbm": {
+      "num_leaves": 63,
+      "learning_rate": 0.05,
+      "n_estimators": 100,
+      "min_child_samples": 5,
+      "colsample_bytree": 1.0
+    },
+    "logistic": {}
+  },
+  "cv_score": {
+    "lightgbm": -0.7908443476993238,
+    "logistic": -0.8882794276825662
+  },
+  "default_cv_score": {
+    "lightgbm": -0.7955781614302561,
+    "logistic": -0.8882794276825662
+  },
+  "feature_names": [
+    "year",
+    "duration",
+    "rating_count",
+    "user_reviews",
+    "critic_reviews",
+    "genre",
+    "country"
+  ],
+  "profile": {
+    "importance": {
+      "0": 0.21600923296378355,
+      "1": 0.17425973647347268,
+      "2": 0.27411759474323544,
+      "3": 0.09028235172211828,
+      "4": 0.06621880207926764,
+      "5": 0.17666838810813726,
+      "6": 0.002443893909985117
+    },
+    "target_correlation": {
+      "0": 0.22591795953407465,
+      "1": 0.3025950812460885,
+      "2": 0.3353816231694545,
+      "3": 0.2607881225063779,
+      "4": 0.2577154757547121
+    },
+    "predictability": {
+      "0": {
+        "bayesian_ridge": 0.11931840012940054,
+        "hist_gb": 0.4487580891073635
+      },
+      "1": {
+        "bayesian_ridge": 0.20675769958668644,
+        "hist_gb": 0.32034469703143464
+      },
+      "2": {
+        "bayesian_ridge": 0.7235367955064778,
+        "hist_gb": 0.7807342132607801
+      },
+      "3": {
+        "bayesian_ridge": 0.7258773337818167,
+        "hist_gb": 0.796657589370898
+      },
+      "4": {
+        "bayesian_ridge": 0.6013820459587873,
+        "hist_gb": 0.9121109972534917
+      }
+    }
+  },
+  "seconds": 10.484522600003402
+}

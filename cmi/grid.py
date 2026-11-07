@@ -20,7 +20,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from cmi.data import OPENML_TABLES, Table, load_magic_telescope, load_openml_table, split_indices
+from cmi.data import OPENML_TABLES, Table, split_indices
+from cmi.data import load_table as data_load_table
 from cmi.detector import detection_quality
 from cmi.injection import MECHANISMS, pick_columns
 from cmi.models import MODEL_NAMES, evaluate, fit_model, predict_scores
@@ -73,8 +74,7 @@ def key_of(row: dict) -> tuple:
     return tuple(row.get(field, VARIANT_DEFAULTS.get(field)) for field in KEY_FIELDS)
 
 
-def load_table(name: str) -> Table:
-    return load_magic_telescope() if name == "MagicTelescope" else load_openml_table(name)
+load_table = data_load_table
 
 
 def target_columns(table: Table, variant: Variant) -> tuple[int, ...]:

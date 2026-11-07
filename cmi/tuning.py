@@ -21,7 +21,7 @@ from sklearn.linear_model import BayesianRidge
 from sklearn.metrics import r2_score
 from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
 
-from cmi.data import OPENML_TABLES, Table, load_magic_telescope, load_openml_table, split_indices
+from cmi.data import TABLE_NAMES, Table, load_table, split_indices
 from cmi.models import evaluate, fit_model, predict_scores
 
 TUNED = Path(__file__).resolve().parent / "tuned"
@@ -136,9 +136,9 @@ def load_tuned(table_name: str, folder: Path = TUNED) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--table", required=True, choices=("MagicTelescope", *OPENML_TABLES))
+    parser.add_argument("--table", required=True, choices=TABLE_NAMES)
     args = parser.parse_args()
-    table = load_magic_telescope() if args.table == "MagicTelescope" else load_openml_table(args.table)
+    table = load_table(args.table)
     tuned = tune_table(table)
     TUNED.mkdir(exist_ok=True)
     (TUNED / f"{table.name}.json").write_text(json.dumps(tuned, indent=2), encoding="utf-8")

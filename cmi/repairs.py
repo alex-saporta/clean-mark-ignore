@@ -104,13 +104,21 @@ def detect_real(
     in_train, in_test = ERRORS_IN_TRAIN[location], ERRORS_IN_TEST[location]
     dirty_train = c.dirty_train if in_train else c.clean_train
     dirty_test = c.dirty_test if in_test else c.clean_test
-    detector = fit_detector(detector_name, dirty_train, numeric, categorical)
-    flagged_train = detector.flag(dirty_train)
-    flagged_test = detector.flag(dirty_test)
+    # Real errors can leave a cell empty. The detectors see the training median
+    # there, and an empty cell is always flagged, since any check would see it.
+    missing_train, missing_test = np.isnan(dirty_train), np.isnan(dirty_test)
+    fill = np.nanmedian(dirty_train, axis=0) if missing_train.any() or missing_test.any() else None
+    seen_train = dirty_train if fill is None else np.where(missing_train, fill, dirty_train)
+    seen_test = dirty_test if fill is None else np.where(missing_test, fill, dirty_test)
+    detector = fit_detector(detector_name, seen_train, numeric, categorical)
+    flagged_train = detector.flag(seen_train)
+    flagged_test = detector.flag(seen_test)
     # A detector that flags most of a column no longer finds anomalies there.
     switched_off = flagged_train.mean(axis=0) > MAX_FLAGGED_SHARE
     flagged_train[:, switched_off] = False
     flagged_test[:, switched_off] = False
+    flagged_train |= missing_train
+    flagged_test |= missing_test
     return DetectedSplit(
         clean_train=c.clean_train,
         clean_test=c.clean_test,

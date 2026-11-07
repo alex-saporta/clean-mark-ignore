@@ -21,13 +21,13 @@ import pandas as pd
 from joblib import Parallel, delayed
 from threadpoolctl import threadpool_limits
 
-from cmi.data import OPENML_TABLES, Table, split_indices
+from cmi.data import TABLE_NAMES, Table, split_indices
 from cmi.detector import detection_quality
 from cmi.grid import DETECTORS, RATES, Variant, load_table, target_columns
 from cmi.models import MODEL_NAMES, evaluate, fit_model, predict_scores
 from cmi.real_detectors import DETECTORS as REAL_DETECTORS
 from cmi.repairs import REPAIRING, category_repair_accuracy, detect, detect_real, fit_repair, repair_error
-from cmi.strategies import corrupt
+from cmi.strategies import Corrupted, corrupt
 from cmi.tuning import load_tuned
 from cmi.week1 import adjust_by, paired_record, read_rows
 from cmi.week2 import training_key
@@ -39,6 +39,21 @@ STRATEGIES = ("S0", "S1", "S1c", "S2", "S3", "S4", "S5", "CLEAN")
 KEY_DETECTORS = ((1.0, 0.0), (0.95, 0.01), (0.75, 0.05))
 COLUMN_SHARE = 0.3
 THREADS_PER_WORKER = 2
+# Field of the column profile and direction of each choice of columns: the first
+# of each pair takes the head of the ranking, the second one its tail.
+COLUMN_CHOICES = {
+    "top": "importance",
+    "bottom": "importance",
+    "predictable": "predictability",
+    "unpredictable": "predictability",
+    "correlated": "target_correlation",
+    "uncorrelated": "target_correlation",
+}
+HEAD_CHOICES = ("top", "predictable", "correlated")
+PROFILE_CHOICES = ("predictable", "unpredictable", "correlated", "uncorrelated")
+# Effects below these are negligible, whatever their p-value.
+NEGLIGIBLE_AUROC = 0.002
+NEGLIGIBLE_RMSE_SHARE = 0.005
 COMPARISONS = (
     ("S1", "S0"),
     ("S2", "S0"),
@@ -91,7 +106,20 @@ def available_errors(table: Table) -> tuple[str, ...]:
     return tuple(errors)
 
 
+def real_error_cells() -> list[Cell]:
+    """A table with real errors: the errors are given, so only the detector varies."""
+    cells = []
+    for recall, fpr in DETECTORS:
+        strategies = (*STRATEGIES, "S3hgb") if (recall, fpr) in KEY_DETECTORS else STRATEGIES
+        cells.append(Cell("map", Variant(error="real"), "all", 0.0, "both", recall, fpr, strategies))
+    for detector in REAL_DETECTORS:
+        cells.append(Cell("real", Variant(error="real", detector=detector), "all", 0.0, "both", None, None, STRATEGIES))
+    return cells
+
+
 def pilot_cells(table: Table) -> list[Cell]:
+    if table.X_dirty is not None:
+        return real_error_cells()
     cells = []
     errors = available_errors(table)
     for error, rate, (recall, fpr) in product(errors, RATES, DETECTORS):
@@ -110,22 +138,52 @@ def pilot_cells(table: Table) -> list[Cell]:
     for detector, error, rate in product(REAL_DETECTORS, errors, RATES):
         variant = Variant(error=error, detector=detector)
         cells.append(Cell("real", variant, "all", rate, "both", None, None, STRATEGIES))
+    # Added at the end, so that the cells above keep their results on a later run.
+    for error, rate, (recall, fpr), choice in product(COLUMN_ERRORS, RATES, KEY_DETECTORS, PROFILE_CHOICES):
+        variant = Variant(error=error, column_share=COLUMN_SHARE, scan="targeted")
+        cells.append(Cell("profile", variant, choice, rate, "both", recall, fpr, STRATEGIES))
     return cells
 
 
-def chosen_columns(table: Table, variant: Variant, column_choice: str, importance: dict[int, float]) -> tuple[int, ...]:
-    """All candidates, or the most or least important share of them on clean data."""
+def profile_value(profile: dict, field: str, col: int) -> float:
+    """The value a column is ranked on. S3 repairs with BayesianRidge, so its R2 is the one used."""
+    value = profile[field].get(col, 0.0)
+    if field == "predictability" and isinstance(value, dict):
+        value = value["bayesian_ridge"]
+    return 0.0 if np.isnan(value) else value
+
+
+def chosen_columns(table: Table, variant: Variant, column_choice: str, profile: dict) -> tuple[int, ...]:
+    """All candidates, or the head or tail share of them on a measure taken on clean data."""
     candidates = target_columns(table, Variant(error=variant.error))
     if column_choice == "all":
         return candidates
+    field = COLUMN_CHOICES[column_choice]
     n_columns = min(len(candidates), max(2, round(variant.column_share * len(candidates))))
-    ranked = sorted(candidates, key=lambda col: (-importance[col], col))
-    chosen = ranked[:n_columns] if column_choice == "top" else ranked[-n_columns:]
+    ranked = sorted(candidates, key=lambda col: (-profile_value(profile, field, col), col))
+    chosen = ranked[:n_columns] if column_choice in HEAD_CHOICES else ranked[-n_columns:]
     return tuple(sorted(chosen))
 
 
 def key_of(row: dict) -> tuple:
     return tuple(row[field] for field in KEY_FIELDS)
+
+
+class ConstantModel:
+    """What is left to predict when S4 keeps no rows, or rows of one class only."""
+
+    def __init__(self, value: float):
+        self.value = value
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        return np.full(len(X), self.value)
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        return np.column_stack([np.full(len(X), 1 - self.value), np.full(len(X), self.value)])
+
+
+def needs_constant_model(y_kept: np.ndarray, task: str) -> bool:
+    return len(y_kept) == 0 or (task == "classification" and len(np.unique(y_kept)) < 2)
 
 
 def run_split(
@@ -134,7 +192,7 @@ def run_split(
     """Evaluate one split. Returns the number of new evaluations."""
     path = folder / f"split_{split}.jsonl"
     done = {key_of(row) for row in read_rows(path)}
-    importance = tuned["profile"]["importance"]
+    profile = tuned["profile"]
     numeric_columns = np.zeros(table.X.shape[1], dtype=bool)
     numeric_columns[list(table.numeric)] = True
     train, test = split_indices(table.y, split, task=table.task)
@@ -166,12 +224,23 @@ def run_split(
             if not pending:
                 continue
             variant = cell.variant
-            columns = chosen_columns(table, variant, cell.column_choice, importance)
+            real_errors = table.X_dirty is not None
+            if real_errors:
+                columns = table.error_columns
+            else:
+                columns = chosen_columns(table, variant, cell.column_choice, profile)
             corruption_key = (variant.error, variant.mechanism, columns, cell.rate)
             if corruption_key not in corruptions:
-                corruptions[corruption_key] = corrupt(
-                    X_train, X_test, cell.rate, split, variant.error, columns, variant.mechanism
-                )
+                if real_errors:
+                    # The errors are given: same cells, same values, for every strategy.
+                    mask = table.error_mask
+                    corruptions[corruption_key] = Corrupted(
+                        X_train, X_test, table.X_dirty[train], table.X_dirty[test], mask[train], mask[test]
+                    )
+                else:
+                    corruptions[corruption_key] = corrupt(
+                        X_train, X_test, cell.rate, split, variant.error, columns, variant.mechanism
+                    )
             corrupted = corruptions[corruption_key]
             if variant.detector != "simulated":
                 view = detect_real(corrupted, cell.location, variant.detector, table.numeric, table.categorical)
@@ -191,15 +260,19 @@ def run_split(
                 fit_reused = fit_key in fits
                 if not fit_reused:
                     start = time.perf_counter()
-                    fitted = fit_model(
-                        model_name,
-                        table.task,
-                        table.categorical,
-                        repair.train,
-                        y_train[repair.kept_rows],
-                        tuned["params"][model_name],
-                        n_jobs=threads,
-                    )
+                    y_kept = y_train[repair.kept_rows]
+                    if needs_constant_model(y_kept, table.task):
+                        fitted = ConstantModel(float(y_kept.mean()) if len(y_kept) else float(y_train.mean()))
+                    else:
+                        fitted = fit_model(
+                            model_name,
+                            table.task,
+                            table.categorical,
+                            repair.train,
+                            y_kept,
+                            tuned["params"][model_name],
+                            n_jobs=threads,
+                        )
                     fits[fit_key] = (fitted, time.perf_counter() - start)
                 fitted, fit_seconds = fits[fit_key]
                 start = time.perf_counter()
@@ -220,6 +293,7 @@ def run_split(
                     "fit_reused": fit_reused,
                     "predict_seconds": predict_seconds,
                     "kept_row_share": float(repair.kept_rows.mean()),
+                    "constant_model": isinstance(fitted, ConstantModel),
                     "train_recall": quality_train.recall,
                     "train_fpr": quality_train.fpr,
                     "train_precision": quality_train.precision,
@@ -269,21 +343,36 @@ def comparison_table(rows: pd.DataFrame) -> pd.DataFrame:
                 records.append(
                     {**dict(zip(CONFIG, config)), "comparison": f"{a}-{b}", **paired_record(group[a], group[b])}
                 )
-    return adjust_by(pd.DataFrame(records))
+    result = adjust_by(pd.DataFrame(records))
+    clean = rows[rows["strategy"] == "CLEAN"].groupby("model")["value"].mean()
+    reference = result["model"].map(clean)
+    result["relative_diff"] = result["mean_diff"] / reference
+    # AUROC: a fixed gap. RMSE: a share of the clean RMSE of that model.
+    is_auroc = rows["metric"].iloc[0] == "auroc"
+    result["negligible_below"] = NEGLIGIBLE_AUROC if is_auroc else NEGLIGIBLE_RMSE_SHARE * reference
+    return result
 
 
 def win_summary(comparisons: pd.DataFrame, by: list[str], alpha: float = 0.05) -> pd.DataFrame:
+    """A win or a loss is significant. A `clear` one also exceeds the negligible effect."""
+    significant = comparisons["p_by"] < alpha
+    large = comparisons["mean_diff"].abs() >= comparisons["negligible_below"]
     table = comparisons.assign(
-        win=(comparisons["p_by"] < alpha) & (comparisons["mean_diff"] > 0),
-        loss=(comparisons["p_by"] < alpha) & (comparisons["mean_diff"] < 0),
+        win=significant & (comparisons["mean_diff"] > 0),
+        loss=significant & (comparisons["mean_diff"] < 0),
     )
+    table["clear_win"] = table["win"] & large
+    table["clear_loss"] = table["loss"] & large
     return (
         table.groupby(by)
         .agg(
             cells=("win", "size"),
             wins=("win", "sum"),
             losses=("loss", "sum"),
-            mean_diff=("mean_diff", "mean"),
+            clear_wins=("clear_win", "sum"),
+            clear_losses=("clear_loss", "sum"),
+            median_diff=("mean_diff", "median"),
+            median_relative=("relative_diff", "median"),
             min_diff=("mean_diff", "min"),
             max_diff=("mean_diff", "max"),
         )
@@ -309,6 +398,7 @@ def report(table: Table, folder: Path, tuned: dict) -> str:
     kept = rows[rows["strategy"] == "S4"].groupby(["block", "error", "detector", "rate", "recall", "fpr"])[
         "kept_row_share"
     ].mean()
+    n_constant = int(rows["constant_model"].eq(True).sum()) if "constant_model" in rows else 0
     profile = tuned["profile"]
     names = tuned["feature_names"]
     columns = pd.DataFrame(
@@ -320,6 +410,21 @@ def report(table: Table, folder: Path, tuned: dict) -> str:
             "r2_hist_gb": [profile["predictability"].get(col, {}).get("hist_gb") for col in range(len(names))],
         }
     )
+    choices = rows[rows["column_choice"] != "all"].drop_duplicates(["column_choice", "error"])
+    chosen = pd.DataFrame(
+        [
+            {
+                "choice": row["column_choice"],
+                "error": row["error"],
+                "columns": ", ".join(names[col] for col in row["target_columns"]),
+                "mean_importance": np.mean([profile["importance"][col] for col in row["target_columns"]]),
+                "mean_correlation": np.mean([profile_value(profile, "target_correlation", col) for col in row["target_columns"]]),
+                "mean_r2_bayesian_ridge": np.mean([profile_value(profile, "predictability", col) for col in row["target_columns"]]),
+            }
+            for _, row in choices.iterrows()
+        ],
+        columns=["choice", "error", "columns", "mean_importance", "mean_correlation", "mean_r2_bayesian_ridge"],
+    )
     repair_time = rows[~rows["repair_reused"]].groupby("strategy")["repair_seconds"].agg(["count", "mean", "max"])
     fit_time = rows[~rows["fit_reused"]].groupby("model")["fit_seconds"].agg(["count", "mean", "max"])
     total = rows[~rows["repair_reused"]]["repair_seconds"].sum() + rows[~rows["fit_reused"]]["fit_seconds"].sum()
@@ -330,7 +435,10 @@ def report(table: Table, folder: Path, tuned: dict) -> str:
         f"Splits: {rows['split'].nunique()}. Metric: {metric}, {'higher' if metric == 'auroc' else 'lower'} is better. "
         f"Paired t-tests, Benjamini-Yekutieli over all {len(comparisons)} comparisons of this table. "
         "`mean_diff` is on a score where higher is better, so a positive value favours the first strategy. "
-        "A recall and false positive rate of -1 mean a real detector.",
+        "A recall and false positive rate of -1 mean a real detector. "
+        f"A clear win or loss is significant and at least {NEGLIGIBLE_AUROC} of AUROC, "
+        f"or {NEGLIGIBLE_RMSE_SHARE:.1%} of the clean RMSE of the model. "
+        "`relative` divides by the clean metric of the model.",
         f"Hyperparameters, tuned once on clean data: `{json.dumps(tuned['params'])}`",
         "## Wins and losses by comparison and block",
         win_summary(comparisons, ["model", "block", "comparison"]).to_markdown(index=False, floatfmt=".4f"),
@@ -340,6 +448,8 @@ def report(table: Table, folder: Path, tuned: dict) -> str:
         ),
         "## Column importance, correlation and predictability (clean training part)",
         columns.to_markdown(index=False, floatfmt=".3f"),
+        "## Columns hit by each choice",
+        chosen.to_markdown(index=False, floatfmt=".3f"),
         "## Mean metric",
         means.to_markdown(index=False, floatfmt=".4f"),
         "## All comparisons",
@@ -350,6 +460,7 @@ def report(table: Table, folder: Path, tuned: dict) -> str:
         repair_quality.to_markdown(index=False, floatfmt=".3f"),
         "## Share of training rows kept by S4",
         kept.reset_index().to_markdown(index=False, floatfmt=".3f"),
+        f"Evaluations with a constant model, S4 having kept no rows or one class: {n_constant} of {len(rows)}.",
         "## Compute time (seconds)",
         f"Total compute per split: {total / rows['split'].nunique():.0f}. Cells: {n_cells}. "
         f"Mean per cell and split: {total / rows['split'].nunique() / n_cells:.1f}.",
@@ -362,7 +473,7 @@ def report(table: Table, folder: Path, tuned: dict) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("run", "report"))
-    parser.add_argument("--table", required=True, choices=("MagicTelescope", *OPENML_TABLES))
+    parser.add_argument("--table", required=True, choices=TABLE_NAMES)
     parser.add_argument("--splits", type=int, default=10)
     parser.add_argument("--first-split", type=int, default=0)
     parser.add_argument("--jobs", type=int, default=1)
