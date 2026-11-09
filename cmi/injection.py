@@ -1,10 +1,7 @@
 """Error injection. Masks depend only on the split, the rate and the data part.
 
-Each error type has a function taking the matrix, the rate, its parameters from the
-clean training data, and a generator. The mechanism chooses the cells:
-
-uniform     every cell of a targeted column has the same chance
-dependent   the chance grows with the rank of the row in another column
+Mechanisms: `uniform` (same chance for every cell of a targeted column) or
+`dependent` (the chance grows with the rank of the row in another column).
 """
 
 import numpy as np
@@ -50,8 +47,8 @@ def draw_cells(
 ) -> np.ndarray:
     """Pick round(rate * n_rows) cells per targeted column. Returns -1, 0 or +1.
 
-    `eligible` excludes cells the error could not change, which can give fewer cells.
-    `weights_of(col)` returns selection weights for the dependent mechanism.
+    `eligible` excludes cells the error could not change; `weights_of` gives the
+    weights of the dependent mechanism.
     """
     if not 0 < rate <= 1:
         raise ValueError(f"rate must be in (0, 1], got {rate}")
@@ -91,11 +88,7 @@ def inject_outliers(
     columns: tuple[int, ...] | None = None,
     mechanism: str = "uniform",
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Each chosen cell becomes its true value +/- magnitude * scale.
-
-    The error keeps the true value's order within each sign. `scale` must come
-    from the clean training data, including when X is the test part.
-    """
+    """True value +/- magnitude * scale. `scale` must come from clean training data."""
     targets = _target_columns(X.shape[1], columns)
     _check_scale(scale, targets)
     signs = draw_cells(X.shape, rate, rng, columns, weights_of=_mechanism_weights(X, targets, mechanism))
@@ -112,11 +105,9 @@ def inject_random_outliers(
     columns: tuple[int, ...] | None = None,
     mechanism: str = "uniform",
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Each chosen cell becomes a random value outside [low, high].
+    """Random value outside [low, high], on the cells and signs of `inject_outliers`.
 
-    The new value does not depend on the true value. For a given generator seed,
-    the chosen cells and signs are those of `inject_outliers`. `low`, `high` and
-    `scale` must come from the clean training data.
+    `low`, `high` and `scale` must come from clean training data.
     """
     targets = _target_columns(X.shape[1], columns)
     _check_scale(scale, targets)
@@ -136,11 +127,7 @@ def inject_unit_change(
     mechanism: str = "uniform",
     factor: float = UNIT_FACTOR,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Each chosen cell is multiplied by `factor`, as with a wrong unit.
-
-    Zero cells would not change, so they are not eligible. The error keeps the
-    order of the true values.
-    """
+    """Multiply by `factor`, as with a wrong unit. Zero cells are not eligible."""
     targets = _target_columns(X.shape[1], columns)
     signs = draw_cells(X.shape, rate, rng, columns, X != 0, _mechanism_weights(X, targets, mechanism))
     mask = signs != 0
@@ -170,11 +157,7 @@ def inject_in_domain(
     columns: tuple[int, ...] | None = None,
     mechanism: str = "uniform",
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Each chosen cell takes another distinct value seen in its clean training column.
-
-    The new value is plausible on its own, so a tree cannot isolate it by its range.
-    Works for numeric columns, and for categories as a replaced category.
-    """
+    """Another value seen in the clean training column, or another category."""
     targets = _target_columns(X.shape[1], columns)
     signs = draw_cells(X.shape, rate, rng, columns, weights_of=_mechanism_weights(X, targets, mechanism))
     mask = signs != 0

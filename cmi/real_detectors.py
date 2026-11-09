@@ -8,9 +8,8 @@ rules    SQL rules run with DuckDB: numeric cell more than 3 interquartile range
 
     uv run python -m cmi.real_detectors
 
-prints the quality each detector reaches, per table and error type. Thresholds are the
-usual defaults. The numeric rule was changed once after a first measure: bounds from
-the 0.5 % and 99.5 % quantiles fell among the errors and flagged nothing.
+prints the quality of each detector, per table and error type. The numeric rule was
+changed once after a first measure (see the README).
 """
 
 import duckdb

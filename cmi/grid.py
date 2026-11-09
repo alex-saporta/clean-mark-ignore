@@ -1,12 +1,9 @@
-"""Strategies against a simulated detector, on any table. The grid is provisional.
+"""Strategies against a simulated detector, on any table (provisional grid).
 
     uv run python -m cmi.grid run --table bike-sharing [--splits 10] [--smoke]
-        [--error typo] [--mechanism dependent] [--column-share 0.3] [--scan targeted]
     uv run python -m cmi.grid report --table bike-sharing [--smoke]
 
-The detector scans every column by default, so false alarms reach columns without
-errors. `--scan targeted` limits it to the columns holding errors. Classification
-and regression are separate tables by construction. Finished evaluations are
+See --help for the error, mechanism and scan options. Finished evaluations are
 skipped on a later run.
 """
 

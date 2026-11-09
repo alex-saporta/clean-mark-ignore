@@ -10,8 +10,7 @@ S4      drop training rows with a flagged cell; the test part stays as is
 S5      restore the true value of flagged cells (oracle, depends on the detector)
 CLEAN   use the clean data everywhere (ceiling, does not depend on the detector)
 
-S3 and S3hgb only use numeric columns, as targets and as predictors: an integer
-code has no numeric meaning. Their flagged categorical cells get the mode, as in S2.
+S3 and S3hgb use numeric columns only; their flagged categories get the mode, as in S2.
 """
 
 import time
@@ -65,10 +64,7 @@ def detect(
     categorical: tuple[int, ...] = (),
     scanned_columns: tuple[int, ...] | None = None,
 ) -> DetectedSplit:
-    """Run the simulated detector on both parts, including a part without errors.
-
-    `scanned_columns` limits the detector to some columns; by default it scans them all.
-    """
+    """Run the simulated detector on both parts. `scanned_columns` limits it to some columns."""
     in_train, in_test = ERRORS_IN_TRAIN[location], ERRORS_IN_TEST[location]
     errors_train = c.train_mask if in_train else np.zeros_like(c.train_mask)
     errors_test = c.test_mask if in_test else np.zeros_like(c.test_mask)

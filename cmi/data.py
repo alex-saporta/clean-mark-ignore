@@ -29,10 +29,8 @@ MAGIC_FEATURES = (
 
 @dataclass(frozen=True)
 class Table:
-    """Categorical columns hold integer codes, sorted by category name.
-
-    `X_dirty` is set only for a table with real errors: `X` is then its clean
-    version, and every cell where the two differ is an error.
+    """Categorical columns hold integer codes. `X_dirty` is set only for a table with
+    real errors; `X` is then its clean version.
     """
 
     name: str
@@ -222,11 +220,10 @@ def fetch_movies_part(part: str, data_home: Path = DATA_HOME) -> pd.DataFrame:
 
 
 def load_movies(data_home: Path = DATA_HOME) -> Table:
-    """Movies with real errors. Target: the clean rating, so that no error reaches it.
+    """Movies with real errors; the target is the clean rating.
 
-    Rows without a clean rating or a clean duration are dropped, since the clean
-    version must have no missing value. Errors in the dirty version stay as they are,
-    a missing duration included.
+    Rows without a clean rating or duration are dropped. Errors in the dirty version
+    are kept, a missing duration included.
     """
     clean_frame, dirty_frame = fetch_movies_part("clean", data_home), fetch_movies_part("dirty", data_home)
     if clean_frame.shape != dirty_frame.shape:

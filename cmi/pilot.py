@@ -1,12 +1,10 @@
 """The pilot grid: only the crossings that answer a hypothesis.
 
-    uv run python -m cmi.tuning --table bike-sharing
     uv run python -m cmi.pilot run --table bike-sharing [--splits 10] [--jobs 4]
     uv run python -m cmi.pilot report --table bike-sharing
 
-Results go to one file per split under results/pilot/<table>/, and finished
-evaluations are skipped on a later run. Every value is fixed per worker, so the
-number of parallel splits does not change any result.
+One result file per split under results/pilot/<table>/. Finished evaluations are
+skipped on a later run, and results do not depend on the number of jobs.
 """
 
 import argparse

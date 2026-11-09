@@ -1,14 +1,9 @@
-"""Figures of the report, one command each.
+"""Figures, one command each.
 
-    uv run python -m cmi.figures map         # where each strategy beats doing nothing
-    uv run python -m cmi.figures threshold   # S1 against S0 along the false positive rate
-    uv run python -m cmi.figures detectors   # real detectors placed on the map
-    uv run python -m cmi.figures movies      # real errors, Movies
+    uv run python -m cmi.figures map|threshold|detectors|movies|all
 
-Each figure is written to figures/<name>.pdf and .png, from results/pilot/.
-Counts are clear wins and losses: paired t-test over 10 splits, Benjamini-Yekutieli
-over all comparisons of a table, and an effect above the negligible threshold.
-Classification and regression stay apart, and no metric is averaged across tables.
+Written to figures/<name>.pdf and .png from results/pilot/. Counts are clear wins
+and losses; classification and regression stay apart.
 """
 
 import argparse

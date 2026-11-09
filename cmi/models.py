@@ -59,10 +59,7 @@ def fit_model(
     params: dict | None = None,
     n_jobs: int | None = None,
 ):
-    """Fit a model on any table. LightGBM reads integer codes as categories.
-
-    `params` holds tuned hyperparameters. Library defaults apply without them.
-    """
+    """Fit a model with tuned `params`, or library defaults. LightGBM reads codes as categories."""
     if task not in ("classification", "regression"):
         raise ValueError(f"Unknown task: {task}")
     if name == "lightgbm":

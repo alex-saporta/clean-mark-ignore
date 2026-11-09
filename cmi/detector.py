@@ -8,19 +8,14 @@ from cmi.injection import PARTS
 
 
 def detector_noise(shape: tuple[int, int], split: int, part: str) -> np.ndarray:
-    """One random priority per cell, shared by every detector of a split and part.
-
-    Sharing it nests detectors: raising the recall or the false positive rate only
-    adds flagged cells, which reduces noise between cells of the grid.
-    """
+    """One random priority per cell, shared across detectors so that they are nested."""
     return np.random.default_rng([split, PARTS[part], 7919]).random(shape)
 
 
 def flag_cells(errors: np.ndarray, recall: float, fpr: float, noise: np.ndarray) -> np.ndarray:
     """Flag round(recall * errors) errors and round(fpr * clean) clean cells per column.
 
-    Pass an all-False `errors` for a part without injected errors: a real detector
-    does not know where the errors are, so it can still raise false alarms there.
+    An all-False `errors` still gets false alarms, as with a real detector.
     """
     if not 0 <= recall <= 1:
         raise ValueError(f"recall must be in [0, 1], got {recall}")
